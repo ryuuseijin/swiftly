@@ -73,8 +73,8 @@
     ]
   },
   "prettier": {
-    "semi": false,
     "singleQuote": true,
+    "arrowParens": "always",
     "tabWidth": 4  
   },
   "commitlint": {

@@ -1,4 +1,4 @@
-import { Workflow, InMemoryWorkflowRunner } from '../src'
+import { Workflow, InMemoryWorkflowRunner } from '../src';
 
 describe('InMemoryWorkflowRunner', () => {
     it('runs workflows', async () => {
@@ -7,12 +7,12 @@ describe('InMemoryWorkflowRunner', () => {
                 {
                     name: 'MyTask',
                     fn: async (input: number) => {
-                        return `some number ${input}`
+                        return `some number ${input}`;
                     }
                 }
             ]
-        }
-        const runner = new InMemoryWorkflowRunner<number>()
-        await runner.run(workflow, 42)
-    })
-})
+        };
+        const runner = new InMemoryWorkflowRunner<number>();
+        await runner.run(workflow, 42);
+    });
+});
