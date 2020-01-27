@@ -3,7 +3,7 @@ import { Workflow, InMemoryWorkflowRunner } from '../src';
 describe('InMemoryWorkflowRunner', () => {
     it('runs workflows', async () => {
         const workflow: Workflow<number> = {
-            tasks: [
+            runnables: [
                 {
                     name: 'MyTask',
                     fn: async (input: number) => {
