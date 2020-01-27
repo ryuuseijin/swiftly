@@ -1,9 +1,10 @@
 import {
     Workflow,
-    Runnable,
+    AnyRunnable,
     TaskRunnable,
     WorkflowRunnable,
     TaskFn,
+    InputFn,
     ConditionFn
 } from './Workflow';
 
@@ -12,142 +13,196 @@ export type WorkflowParams = {
     version: string;
 };
 
-type WorkflowBuilderData<InputMap> = {
+type WorkflowBuilderData<ResultMap, NextInput> = {
     workflowParams: WorkflowParams;
-    runnables: Runnable<any, any>[];
-    repeatConditionFn: ConditionFn<InputMap> | null;
+    runnables: AnyRunnable[];
+    repeatAllConditionFn: ConditionFn<ResultMap> | null;
+    nextConditionFn: ConditionFn<ResultMap> | null;
+    nextInputFn: InputFn<ResultMap, NextInput> | null;
 };
 
-export class WorkflowBuilder<InputMap extends {}, ResultMap extends {}> {
-    constructor(
-        readonly data: WorkflowBuilderData<InputMap>,
-        readonly conditionFn?: ConditionFn<ResultMap>
-    ) {}
+export class WorkflowBuilder<InputMap extends {}, ResultMap extends {}, NextInput> {
+    constructor(readonly data: WorkflowBuilderData<ResultMap, NextInput>) {}
 
     static create<InputMap extends {}>(
         workflowParams: WorkflowParams
-    ): WorkflowBuilder<InputMap, InputMap> {
-        return new WorkflowBuilder<InputMap, InputMap>({
+    ): WorkflowBuilder<InputMap, InputMap, InputMap> {
+        return new WorkflowBuilder({
             workflowParams,
             runnables: [],
-            repeatConditionFn: null
+            repeatAllConditionFn: null,
+            nextConditionFn: null,
+            nextInputFn: null
         });
     }
 
-    nextWhen(conditionFn: ConditionFn<ResultMap>) {
-        return new WorkflowBuilderWithNextCondition<InputMap, ResultMap>(this.data, conditionFn);
+    nextInput<NewNextInput>(
+        nextInputFn: InputFn<ResultMap, NewNextInput>
+    ): WorkflowBuilderWithRunOnly<InputMap, ResultMap, NewNextInput> {
+        return new WorkflowBuilderWithRunOnly({
+            ...this.data,
+            nextInputFn
+        });
+    }
+
+    nextWhen(
+        nextConditionFn: ConditionFn<ResultMap>
+    ): WorkflowBuilderWithRunOnly<InputMap, ResultMap, NextInput> {
+        return new WorkflowBuilderWithRunOnly({
+            ...this.data,
+            nextConditionFn
+        });
     }
 
     run<RunnableOutput, RunnableId extends string>(
         runId: RunnableId,
-        taskFn: TaskFn<ResultMap, RunnableOutput>
+        taskFn: TaskFn<NextInput, RunnableOutput>
     ): WorkflowBuilderWithPreviousRunnable<
         InputMap,
-        ResultMap & { [P in RunnableId]: RunnableOutput }
+        ResultMap & { [P in RunnableId]: RunnableOutput },
+        NextInput
     > {
-        const runnable: TaskRunnable<ResultMap, RunnableOutput> = {
+        const runnable: TaskRunnable<NextInput, RunnableOutput, ResultMap> = {
             type: 'TaskRunnable',
             id: runId,
             taskFn,
-            conditionFn: this.conditionFn || null,
+            inputFn: this.data.nextInputFn || null,
+            conditionFn: this.data.nextConditionFn || null,
             repeatConditionFn: null
         };
-        return new WorkflowBuilderWithPreviousRunnable({
+        return new WorkflowBuilderWithPreviousRunnable<
+            InputMap,
+            ResultMap & { [P in RunnableId]: RunnableOutput },
+            NextInput
+        >({
             ...this.data,
-            runnables: this.data.runnables.concat([runnable])
+            runnables: this.data.runnables.concat([runnable]),
+            nextInputFn: null
         });
     }
 
-    runWorkflow<RunnableOutput, RunnableId extends string>(
+    runWorkflow<WorkflowOutput, RunnableId extends string>(
         runId: RunnableId,
-        workflow: Workflow<ResultMap>
+        workflow: Workflow<NextInput, WorkflowOutput>
     ): WorkflowBuilderWithPreviousRunnable<
         InputMap,
-        ResultMap & { [P in RunnableId]: RunnableOutput }
+        ResultMap & { [P in RunnableId]: WorkflowOutput },
+        NextInput
     > {
-        const runnable: WorkflowRunnable<ResultMap> = {
+        const runnable: WorkflowRunnable<NextInput, WorkflowOutput, ResultMap> = {
             type: 'WorkflowRunnable',
             id: runId,
             workflow,
-            conditionFn: this.conditionFn || null,
+            inputFn: this.data.nextInputFn || null,
+            conditionFn: this.data.nextConditionFn || null,
             repeatConditionFn: null
         };
-        return new WorkflowBuilderWithPreviousRunnable({
+        return new WorkflowBuilderWithPreviousRunnable<
+            InputMap,
+            ResultMap & { [P in RunnableId]: WorkflowOutput },
+            NextInput
+        >({
             ...this.data,
-            runnables: this.data.runnables.concat([runnable])
+            runnables: this.data.runnables.concat([runnable]),
+            nextInputFn: null
         });
     }
 
-    repeatAll(conditionFn: ConditionFn<ResultMap>): WorkflowBuilderBuildOnly<ResultMap> {
+    repeatAll(conditionFn: ConditionFn<ResultMap>): WorkflowBuilderBuildOnly<InputMap, ResultMap> {
         return new WorkflowBuilderBuildOnly({
             ...this.data,
-            repeatConditionFn: conditionFn
+            repeatAllConditionFn: conditionFn
         });
     }
 
-    build(): Workflow<InputMap> {
-        const workflow: Workflow<InputMap> = {
+    build(): Workflow<InputMap, ResultMap> {
+        return {
             name: this.data.workflowParams.name,
             runnables: this.data.runnables,
-            repeatConditionFn: this.data.repeatConditionFn
+            repeatConditionFn: this.data.repeatAllConditionFn || null
         };
-        return workflow;
     }
 }
 
 // after .repeatAll() only .build() is allowed
-export class WorkflowBuilderBuildOnly<InputMap extends {}> {
-    constructor(readonly data: WorkflowBuilderData<InputMap>) {}
+export class WorkflowBuilderBuildOnly<InputMap extends {}, ResultMap extends {}> {
+    constructor(readonly data: WorkflowBuilderData<ResultMap, void>) {}
 
-    build(): Workflow<InputMap> {
+    build(): Workflow<InputMap, ResultMap> {
         return new WorkflowBuilder(this.data).build();
     }
 }
 
-// if we have a condition function, the next .run() invokation may never
-// run and therefore we must make the result **optional** in the ResultMap
-export class WorkflowBuilderWithNextCondition<InputMap extends {}, ResultMap extends {}> {
-    constructor(
-        readonly data: WorkflowBuilderData<InputMap>,
-        readonly conditionFn: ConditionFn<ResultMap>
-    ) {}
+// after nextInput() or nextWhen() only .run() or .runWorkflow() or .nextInput()
+export class WorkflowBuilderWithRunOnly<InputMap extends {}, ResultMap extends {}, NextInput> {
+    constructor(readonly data: WorkflowBuilderData<ResultMap, NextInput>) {}
 
+    nextInput<NewNextInput>(
+        nextInputFn: InputFn<ResultMap, NewNextInput>
+    ): WorkflowBuilderWithRunOnly<InputMap, ResultMap, NewNextInput> {
+        return new WorkflowBuilderWithRunOnly({
+            ...this.data,
+            nextInputFn
+        });
+    }
+
+    // If we have a condition function, the next .run() invocation may
+    // never run and therefore we must make the RunnabldId property in
+    // the ResultMap optional.
     run<TaskOutput, RunnableId extends string>(
         runId: RunnableId,
-        taskFn: TaskFn<ResultMap, TaskOutput>
+        taskFn: TaskFn<NextInput, TaskOutput>
     ): WorkflowBuilderWithPreviousRunnable<
         InputMap,
-        ResultMap & { [P in RunnableId /* optional */]?: TaskOutput }
+        ResultMap & { [P in RunnableId]?: TaskOutput },
+        NextInput
     > {
-        return new WorkflowBuilder(this.data, this.conditionFn).run(
+        // need the type assertion to turn a required RunnableId property into an optional RunnableId property
+        return new WorkflowBuilder<InputMap, ResultMap, NextInput>(this.data).run(
             runId,
             taskFn
         ) as WorkflowBuilderWithPreviousRunnable<
             InputMap,
-            ResultMap & { [P in RunnableId]?: TaskOutput }
+            ResultMap & { [P in RunnableId]?: TaskOutput },
+            NextInput
         >;
     }
 
-    runWorkflow<TaskOutput, RunnableId extends string>(
+    runWorkflow<WorkflowOutput, RunnableId extends string>(
         runId: RunnableId,
-        workflow: Workflow<ResultMap>
+        workflow: Workflow<NextInput, WorkflowOutput>
     ): WorkflowBuilderWithPreviousRunnable<
         InputMap,
-        ResultMap & { [P in RunnableId /* optional */]?: TaskOutput }
+        ResultMap & { [P in RunnableId]?: WorkflowOutput },
+        NextInput
     > {
-        return new WorkflowBuilder(this.data, this.conditionFn).runWorkflow(runId, workflow);
+        // need the type assertion to turn a required RunnableId property into an optional RunnableId property
+        return new WorkflowBuilder<InputMap, ResultMap, NextInput>(this.data).runWorkflow(
+            runId,
+            workflow
+        ) as WorkflowBuilderWithPreviousRunnable<
+            InputMap,
+            ResultMap & { [P in RunnableId]?: WorkflowOutput },
+            NextInput
+        >;
     }
 }
 
 // .repeatPreviousWhile() is only allowed immediately after .run()
 export class WorkflowBuilderWithPreviousRunnable<
     InputMap extends {},
-    ResultMap extends {}
-> extends WorkflowBuilder<InputMap, ResultMap> {
-    repeatPreviousWhile(conditionFn: ConditionFn<ResultMap>): WorkflowBuilder<InputMap, ResultMap> {
+    ResultMap extends {},
+    PrevInput
+> extends WorkflowBuilder<InputMap, ResultMap, ResultMap> {
+    repeatPreviousWhile(
+        repeatConditionFn: ConditionFn<ResultMap>,
+        repeatInputFn?: InputFn<ResultMap, PrevInput>
+    ): WorkflowBuilder<InputMap, ResultMap, ResultMap> {
+        const repeatTask = this.data.runnables[this.data.runnables.length - 1];
         const replacementTask = {
-            ...this.data.runnables[this.data.runnables.length - 1],
-            repeatConditionFn: conditionFn
+            ...repeatTask,
+            repeatConditionFn,
+            repeatInputFn
         };
         return new WorkflowBuilder({
             ...this.data,

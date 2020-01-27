@@ -1,18 +1,22 @@
-import { Workflow, InMemoryWorkflowRunner } from '../src';
+import { Workflow, TaskRunnable, InMemoryWorkflowRunner } from '../src';
 
 describe('InMemoryWorkflowRunner', () => {
     it('runs workflows', async () => {
-        const workflow: Workflow<number> = {
+        const workflow: Workflow<number, { MyTask: string }> = {
+            name: 'MyWorkflow',
+            repeatConditionFn: null,
             runnables: [
                 {
-                    name: 'MyTask',
-                    fn: async (input: number) => {
+                    id: 'MyTask',
+                    taskFn: async (input: number) => {
                         return `some number ${input}`;
                     }
-                }
+                } as TaskRunnable<number, string, {}>
             ]
         };
-        const runner = new InMemoryWorkflowRunner<number>();
-        await runner.run(workflow, 42);
+        const runner = new InMemoryWorkflowRunner<number, { MyTask: string }>();
+        const workflowId = await runner.run(workflow, 42);
+        const result = await runner.getResult(workflowId);
+        expect(result.MyTask).toEqual('some number 42');
     });
 });

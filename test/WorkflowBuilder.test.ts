@@ -1,11 +1,12 @@
 import { WorkflowBuilder } from '../src';
 
 describe('WorkflowBuilder', () => {
-    it('runs workflows', async () => {
-        const workflow = WorkflowBuilder.create<{ init: string }>({
+    it('builds workflows', async () => {
+        const options = {
             name: 'MyWorkflow',
             version: '1'
-        })
+        };
+        const workflow = WorkflowBuilder.create<{ init: string }>(options)
             .nextWhen((data) => {
                 return !!data.init;
             })
@@ -15,13 +16,21 @@ describe('WorkflowBuilder', () => {
             .run('Task2', async (data) => {
                 return data.Task1.substring(0, 10);
             })
+            .nextInput(() => {
+                return { x: 'y' as 'y' };
+            })
             .run('Task3', async (data) => {
-                const x = data.Task1;
+                const x = data.x;
                 return x.substring(0, 10);
             })
-            .repeatPreviousWhile((data) => {
-                return !data.init;
-            })
+            .repeatPreviousWhile(
+                (data) => {
+                    return !data.init;
+                },
+                (results) => {
+                    return { x: 'y' as 'y', z: results };
+                }
+            )
             .repeatAll((data) => {
                 return !data.init;
             })
