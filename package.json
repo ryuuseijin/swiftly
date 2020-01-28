@@ -1,11 +1,11 @@
 {
-  "name": "hotfoot",
+  "name": "swiftly",
   "version": "0.0.0",
   "description": "",
   "keywords": [],
-  "main": "dist/hotfoot.umd.js",
-  "module": "dist/hotfoot.es5.js",
-  "typings": "dist/types/hotfoot.d.ts",
+  "main": "dist/swiftly.umd.js",
+  "module": "dist/swiftly.es5.js",
+  "typings": "dist/types/swiftly.d.ts",
   "files": [
     "dist"
   ],
